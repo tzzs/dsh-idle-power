@@ -1,0 +1,7 @@
+- insert:
+    - id: dsh-idle-power
+      name: 'dsh-idle-power'
+      config:
+        countdownSeconds: 60
+        quietSeconds: 20
+        defaultMode: shutdown

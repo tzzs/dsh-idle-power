@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Idle Shutdown",
+    "description": "Once every session, subagent, and background job in DeepSeek Harness has stopped, runs a full-window 60-second countdown and then hibernates or powers off. Hibernate is the default: it saves the memory image, so the next boot restores every open window and unsaved edit. Any new task during the countdown voids it."
+  }
+}
