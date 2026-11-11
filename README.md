@@ -6,6 +6,12 @@ Hibernate or shut down Windows once **every** DeepSeek Harness task has finished
 
 Long agent runs usually end when you have walked away. This plugin lets you say *"shut the machine down when everything is actually done"*, then keeps its promise safe: it waits for all agents, subagents and background jobs, shows a full-window countdown, and **voids itself the moment new work appears**.
 
+![The countdown dialog](docs/countdown.png)
+
+| Choose what happens | While it waits |
+|---|---|
+| ![The scheduling panel](docs/panel.png) | The sidebar entry names the live state: `Schedule shutdown`, `Waiting · 3 tasks running`, `42s to shutdown`. |
+
 ---
 
 ## Why it is safe
