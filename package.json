@@ -1,7 +1,7 @@
 {
   "name": "dsh-idle-power",
-  "version": "0.1.0",
-  "description": "Hibernate or shut down Windows once every DeepSeek Harness task has finished, with a visible 60-second countdown you can cancel.",
+  "version": "0.2.0",
+  "description": "Hibernate or shut down Windows once every task in the DSH Host has finished, with a visible 60-second countdown you can cancel.",
   "type": "module",
   "exports": {
     ".": "./index.js",

@@ -32,6 +32,13 @@ const MODE_SHUTDOWN = 'shutdown'
 const DEFAULT_COUNTDOWN_SECONDS = 60
 const DEFAULT_QUIET_SECONDS = 20
 const MAX_BODY_BYTES = 64 * 1024
+/**
+ * A gap this large between the deadline and the next tick means this process was
+ * frozen or the machine was suspended, not that a timer merely ran late. Firing
+ * a shutdown at the exact moment a laptop wakes is a surprise, so the watch is
+ * re-armed instead and the whole quiet window has to happen again.
+ */
+const RESUME_GAP_MS = 5 * 1000
 
 /** Clamp a configured integer into range, falling back to the default. */
 function boundedInteger(value, fallback, min, max) {
@@ -104,6 +111,11 @@ export function apply(ctx, config) {
 	let error = null
 	let lastExecution = null
 	let executing = false
+	let revision = 0
+	let disposed = false
+
+	const executionConflict = () => ({ ok: false, code: 'execution-in-progress', message: 'the power command is already executing' })
+	const superseded = () => ({ ok: false, code: 'reservation-changed', message: 'the reservation changed while the command was being checked' })
 
 	/**
 	 * Count everything this Host is still doing: agent turns, queued inbox work,
@@ -134,6 +146,7 @@ export function apply(ctx, config) {
 			}
 		}
 		return {
+			available: agents !== undefined,
 			agentsRunning,
 			inboxPending,
 			jobsRunning,
@@ -164,6 +177,7 @@ export function apply(ctx, config) {
 
 	/** Leave every waiting phase and forget the reservation. */
 	function reset() {
+		revision += 1
 		phase = PHASE_IDLE
 		quietSince = null
 		deadline = null
@@ -176,13 +190,17 @@ export function apply(ctx, config) {
 	 * tick later.
 	 */
 	function evaluate(now = Date.now()) {
-		if (phase !== PHASE_ARMED && phase !== PHASE_COUNTING) return
+		if (disposed || (phase !== PHASE_ARMED && phase !== PHASE_COUNTING)) return
 		const busy = countBusy()
+		// Missing registries are unknown activity, never proof of idleness.
+		if (!busy.available || busy.total > 0) {
+			if (phase === PHASE_COUNTING) revision += 1
+			phase = PHASE_ARMED
+			deadline = null
+			quietSince = null
+			return
+		}
 		if (phase === PHASE_ARMED) {
-			if (busy.total > 0) {
-				quietSince = null
-				return
-			}
 			if (quietSince === null) {
 				quietSince = now
 				return
@@ -194,25 +212,37 @@ export function apply(ctx, config) {
 			}
 			return
 		}
-		// COUNTING: any new work voids the countdown and re-arms the watch.
-		if (busy.total > 0) {
-			phase = PHASE_ARMED
-			deadline = null
-			quietSince = now
-			return
+		if (now >= deadline) {
+			if (now - deadline > RESUME_GAP_MS) {
+				revision += 1
+				phase = PHASE_ARMED
+				deadline = null
+				quietSince = now
+				ctx.logger.info('dsh-idle-power: woke past the countdown deadline; re-armed instead of executing')
+				return
+			}
+			void execute()
 		}
-		if (now >= deadline) void execute()
 	}
 
 	/** Run the reserved power action. A non-zero exit or a spawn failure is reported. */
 	async function execute() {
-		if (executing) return
+		if (executing || disposed) return
 		executing = true
-		phase = PHASE_EXECUTING
-		deadline = null
+		const attempt = revision
 		const actionMode = mode
 		try {
 			const executable = await ctx.subprocess.resolveExecutable(options.shutdownCommand)
+			if (disposed || revision !== attempt || phase !== PHASE_COUNTING) return
+			// Resolving PATH may yield while new work arrives. Recheck immediately
+			// before spawn, with no asynchronous boundary after this check.
+			const busy = countBusy()
+			if (!busy.available || busy.total > 0) {
+				evaluate()
+				return
+			}
+			phase = PHASE_EXECUTING
+			deadline = null
 			const argv =
 				actionMode === MODE_HIBERNATE
 					? [executable, '/h', '/f']
@@ -241,6 +271,8 @@ export function apply(ctx, config) {
 			error = null
 			lastExecution = { mode: actionMode, at: Date.now(), ok: true }
 		} catch (failure) {
+			if (disposed || revision !== attempt) return
+			deadline = null
 			phase = PHASE_FAILED
 			error = failure instanceof Error ? failure.message : String(failure)
 			lastExecution = { mode: actionMode, at: Date.now(), ok: false }
@@ -250,23 +282,40 @@ export function apply(ctx, config) {
 		}
 	}
 
-	/** Arm a reservation, refusing a machine or command that cannot honour it. */
-	async function arm(requestedMode) {
+	/**
+	 * Arm a reservation, refusing a machine or command that cannot honour it.
+	 * `entryRevision` is the revision observed when the request arrived: if the
+	 * reservation changed while the body was still uploading, this request is
+	 * stale and must not recreate it after a later cancel.
+	 */
+	async function arm(requestedMode, entryRevision) {
+		if (entryRevision !== undefined && revision !== entryRevision) return superseded()
+		if (phase === PHASE_EXECUTING) return executionConflict()
+		if (disposed) return superseded()
 		if (!supported) {
 			return { ok: false, code: 'unsupported-platform', message: `unsupported platform: ${process.platform}` }
 		}
 		if (ctx.get('agents') === undefined) {
 			return { ok: false, code: 'agents-unavailable', message: 'the agent registry is unavailable' }
 		}
+		const attempt = ++revision
 		try {
 			await ctx.subprocess.resolveExecutable(options.shutdownCommand)
 		} catch (failure) {
+			if (disposed || revision !== attempt) return superseded()
 			return {
 				ok: false,
 				code: 'command-unavailable',
 				message: failure instanceof Error ? failure.message : String(failure),
 			}
 		}
+		if (disposed || revision !== attempt) return superseded()
+		if (phase === PHASE_EXECUTING) return executionConflict()
+		if (ctx.get('agents') === undefined) {
+			return { ok: false, code: 'agents-unavailable', message: 'the agent registry is unavailable' }
+		}
+		// Invalidate any countdown lookup that started while validation yielded.
+		revision += 1
 		mode = requestedMode
 		phase = PHASE_ARMED
 		quietSince = null
@@ -308,6 +357,9 @@ export function apply(ctx, config) {
 				sendMethodNotAllowed(res, 'POST')
 				return
 			}
+			// Take the revision before the awaited body read: a cancel that lands
+			// while the body is still arriving must win over this arm.
+			const entryRevision = revision
 			const essence = String(req.headers['content-type'] ?? '').split(';', 1)[0]?.trim().toLowerCase()
 			if (essence !== 'application/json') {
 				sendJson(res, 415, { code: 'unsupported-media-type', message: 'content-type must be application/json' })
@@ -323,7 +375,7 @@ export function apply(ctx, config) {
 				sendJson(res, 400, { code: 'bad-request', message: 'body must be {"mode":"hibernate"|"shutdown"}' })
 				return
 			}
-			const outcome = await arm(parsed.mode)
+			const outcome = await arm(parsed.mode, entryRevision)
 			if (!outcome.ok) {
 				sendJson(res, 409, { code: outcome.code, message: outcome.message })
 				return
@@ -367,6 +419,11 @@ export function apply(ctx, config) {
 				sendJson(res, 400, { code: 'bad-request', message: 'mode must be "hibernate" or "shutdown"' })
 				return
 			}
+			if (phase === PHASE_EXECUTING) {
+				sendJson(res, 409, executionConflict())
+				return
+			}
+			revision += 1
 			mode = parsed.mode
 			sendJson(res, 200, stateSnapshot())
 		},
@@ -381,6 +438,10 @@ export function apply(ctx, config) {
 				sendMethodNotAllowed(res, 'POST')
 				return
 			}
+			if (phase === PHASE_EXECUTING) {
+				sendJson(res, 409, executionConflict())
+				return
+			}
 			reset()
 			sendJson(res, 200, stateSnapshot())
 		},
@@ -390,7 +451,11 @@ export function apply(ctx, config) {
 	// soon as work reappears rather than up to a second later.
 	ctx.effect(() => {
 		const timer = setInterval(() => evaluate(), 1000)
-		return () => clearInterval(timer)
+		return () => {
+			disposed = true
+			revision += 1
+			clearInterval(timer)
+		}
 	}, 'dsh-idle-power: watcher')
 
 	const nudge = () => {

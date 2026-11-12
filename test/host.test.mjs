@@ -3,7 +3,33 @@
 // here can power the machine off.
 import { apply } from '../index.js'
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+// Deterministic time drives the real interval callback without waiting minutes.
+let clock = null
+const flush = async () => { for (let i = 0; i < 20; i += 1) await Promise.resolve() }
+const sleep = async (ms) => {
+  const until = clock.now + ms
+  while (clock.next <= until) {
+    clock.now = clock.next
+    clock.next += 1000
+    clock.tick?.()
+    await flush()
+  }
+  clock.now = until
+  await flush()
+}
+const deferred = () => {
+  let resolve
+  let reject
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+/** Move the clock forward without letting the interval tick in between. */
+const jump = async (ms) => {
+  clock.now += ms
+  clock.next = clock.now + 1000
+  clock.tick?.()
+  await flush()
+}
 
 const state = { agents: [], jobs: [], spawned: [] }
 
@@ -53,6 +79,7 @@ function makeContext(overrides = {}) {
   }
   const byName = { agents, jobs, connection, subprocess, webServer }
   const disposers = []
+  const listeners = new Map()
   const ctx = {
     logger: { info() {}, warn() {}, error() {} },
     agents,
@@ -67,8 +94,9 @@ function makeContext(overrides = {}) {
       if (typeof dispose === 'function') disposers.push(dispose)
       return () => {}
     },
-    on() {
-      return () => {}
+    on(event, handler) {
+      listeners.set(event, handler)
+      return () => listeners.delete(event)
     },
     get(name) {
       return byName[name]
@@ -77,6 +105,8 @@ function makeContext(overrides = {}) {
   return {
     ctx,
     routes,
+    services: byName,
+    emit(event) { listeners.get(event)?.() },
     dispose() {
       for (const dispose of disposers.splice(0)) dispose()
     },
@@ -84,7 +114,7 @@ function makeContext(overrides = {}) {
 }
 
 /** Invoke a registered route handler with a fake request/response pair. */
-function call(routes, path, { method = 'GET', body = '', headers = {} } = {}) {
+function call(routes, path, { method = 'GET', body = '', headers = {}, bodyReady } = {}) {
   const route = routes.get(path)
   if (!route) throw new Error(`no route ${path}`)
   const res = {
@@ -98,6 +128,7 @@ function call(routes, path, { method = 'GET', body = '', headers = {} } = {}) {
     method,
     headers: { 'content-type': 'application/json', ...headers },
     async *[Symbol.asyncIterator]() {
+      if (bodyReady) await bodyReady
       if (body.length > 0) yield Buffer.from(body)
     },
     resume() {},
@@ -136,11 +167,20 @@ async function scenario(name, config, body, overrides) {
   state.jobs = []
   state.spawned = []
   const runtime = makeContext(overrides)
-  apply(runtime.ctx, config)
+  const original = { now: Date.now, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval }
+  clock = { now: 0, next: 1000, tick: null }
+  Date.now = () => clock.now
+  globalThis.setInterval = (tick) => { clock.tick = tick; return 1 }
+  globalThis.clearInterval = () => { clock.tick = null }
   try {
-    await body({ routes: runtime.routes })
+    apply(runtime.ctx, config)
+    await body(runtime)
   } finally {
     runtime.dispose()
+    Date.now = original.now
+    globalThis.setInterval = original.setInterval
+    globalThis.clearInterval = original.clearInterval
+    clock = null
   }
 }
 
@@ -328,6 +368,162 @@ if (process.platform !== 'win32') {
   console.log('\n=== non-Windows refusal ===')
   check('skipped on this platform', true)
 }
+
+await scenario('cancel wins while arm request body is still arriving', {}, async ({ routes }) => {
+  const body = deferred()
+  const pending = call(routes, '/idle-power/arm', { method: 'POST', body: '{}', bodyReady: body.promise })
+  await flush()
+  await call(routes, '/idle-power/cancel', { method: 'POST' })
+  body.resolve()
+  check('slow arm body cannot undo cancel', (await pending).statusCode === 409 && (await readState(routes)).phase === 'idle')
+})
+
+await scenario('cancel wins over pending arm validation', {}, async ({ routes, ctx }) => {
+  const lookup = deferred()
+  ctx.subprocess.resolveExecutable = () => lookup.promise
+  const pending = call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  await flush()
+  await call(routes, '/idle-power/cancel', { method: 'POST' })
+  lookup.resolve('C:\\fake\\shutdown.exe')
+  const result = await pending
+  check('superseded arm returns conflict', result.statusCode === 409)
+  check('cancelled arm stays idle', (await readState(routes)).phase === 'idle')
+})
+
+await scenario('work arriving during executable lookup prevents execution', { quietSeconds: 3, countdownSeconds: 5 }, async ({ routes, ctx }) => {
+  await call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  const lookup = deferred()
+  ctx.subprocess.resolveExecutable = () => lookup.promise
+  await sleep(9000)
+  state.agents = [agent('late', 'running')]
+  lookup.resolve('C:\\fake\\shutdown.exe')
+  await flush()
+  check('late work blocks spawn after lookup', state.spawned.length === 0)
+  check('late work re-arms watch', (await readState(routes)).phase === 'armed')
+})
+
+await scenario('commands cannot claim success once execution is committed', { quietSeconds: 3, countdownSeconds: 5 }, async ({ routes, ctx }) => {
+  const completion = deferred()
+  ctx.subprocess.spawn = (spec) => {
+    state.spawned.push(spec.argv)
+    return { done: completion.promise, collected: {} }
+  }
+  await call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  await sleep(9000)
+  check('command is executing', (await readState(routes)).phase === 'executing')
+  for (const route of ['cancel', 'arm', 'mode']) {
+    const response = await call(routes, `/idle-power/${route}`, { method: 'POST', body: '{"mode":"hibernate"}' })
+    check(`${route} refuses committed execution`, response.statusCode === 409)
+    check(`${route} leaves phase executing`, (await readState(routes)).phase === 'executing')
+  }
+  check('mode stays the actual executing action', (await readState(routes)).mode === 'shutdown')
+  completion.resolve({ exitCode: 0 })
+  await flush()
+})
+
+await scenario('busy countdown restarts the complete quiet window', { quietSeconds: 3, countdownSeconds: 5 }, async ({ routes, emit }) => {
+  await call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  await sleep(4000)
+  state.agents = [agent('s1', 'running')]
+  emit('agent/status')
+  check('busy state clears quiet time', (await readState(routes)).quietRemainingSeconds === 0)
+  await sleep(900)
+  state.agents = []
+  emit('agent/status')
+  await sleep(2100)
+  check('does not reuse time spent busy', (await readState(routes)).phase === 'armed')
+  await sleep(1000)
+  check('starts countdown after a full quiet window', (await readState(routes)).phase === 'counting')
+})
+
+await scenario('missing registry cannot look idle', { quietSeconds: 3, countdownSeconds: 5 }, async ({ routes, services }) => {
+  await call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  await sleep(4000)
+  const registry = services.agents
+  services.agents = undefined
+  await sleep(10000)
+  check('registry loss prevents execution', state.spawned.length === 0)
+  check('registry loss clears countdown', (await readState(routes)).phase === 'armed')
+  services.agents = registry
+  await sleep(3000)
+  check('registry restoration requires fresh quiet period', (await readState(routes)).phase === 'armed')
+})
+
+await scenario('latest arm wins out-of-order executable checks', {}, async ({ routes, ctx }) => {
+  const first = deferred()
+  const second = deferred()
+  let calls = 0
+  ctx.subprocess.resolveExecutable = () => (++calls === 1 ? first.promise : second.promise)
+  const older = call(routes, '/idle-power/arm', { method: 'POST', body: '{"mode":"shutdown"}' })
+  await flush()
+  const newer = call(routes, '/idle-power/arm', { method: 'POST', body: '{"mode":"hibernate"}' })
+  await flush()
+  second.resolve('C:\\fake\\shutdown.exe')
+  check('latest arm succeeds', (await newer).statusCode === 200)
+  first.resolve('C:\\fake\\shutdown.exe')
+  check('older arm is superseded', (await older).statusCode === 409)
+  check('older completion cannot replace chosen action', (await readState(routes)).mode === 'hibernate')
+})
+
+await scenario('registry is rechecked after arm lookup', {}, async ({ routes, ctx, services }) => {
+  const lookup = deferred()
+  ctx.subprocess.resolveExecutable = () => lookup.promise
+  const pending = call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  await flush()
+  services.agents = undefined
+  lookup.resolve('C:\\fake\\shutdown.exe')
+  const result = await pending
+  check('arm refuses registry lost during lookup', result.statusCode === 409 && parse(result).code === 'agents-unavailable')
+  check('state explicitly marks missing registry', (await readState(routes)).busy.available === false)
+})
+
+for (const interruption of ['cancel', 'dispose', 'activity']) {
+  await scenario(`${interruption} invalidates an in-flight execution lookup`, { quietSeconds: 3, countdownSeconds: 5 }, async ({ routes, ctx, dispose, emit }) => {
+    await call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+    const lookup = deferred()
+    ctx.subprocess.resolveExecutable = () => lookup.promise
+    await sleep(9000)
+    if (interruption === 'cancel') {
+      check('lookup can still be cancelled', (await call(routes, '/idle-power/cancel', { method: 'POST' })).statusCode === 200)
+    } else if (interruption === 'dispose') {
+      dispose()
+    } else {
+      state.agents = [agent('brief', 'running')]
+      emit('agent/status')
+      state.agents = []
+      emit('agent/status')
+    }
+    lookup.resolve('C:\\fake\\shutdown.exe')
+    await flush()
+    check(`${interruption} prevents stale spawn`, state.spawned.length === 0)
+    if (interruption === 'cancel') check('cancel remains idle after lookup', (await readState(routes)).phase === 'idle')
+    if (interruption === 'activity') check('brief activity requires new quiet window', (await readState(routes)).phase === 'armed')
+  })
+}
+
+await scenario('stale lookup failure cannot overwrite cancellation', { quietSeconds: 3, countdownSeconds: 5 }, async ({ routes, ctx }) => {
+  await call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  const lookup = deferred()
+  ctx.subprocess.resolveExecutable = () => lookup.promise
+  await sleep(9000)
+  await call(routes, '/idle-power/cancel', { method: 'POST' })
+  lookup.reject(new Error('lookup failed after cancellation'))
+  await flush()
+  const snapshot = await readState(routes)
+  check('stale failure leaves cancellation intact', snapshot.phase === 'idle' && snapshot.error === null && snapshot.lastExecution === null)
+})
+
+await scenario('waking long past the deadline re-arms instead of shutting down', { quietSeconds: 3, countdownSeconds: 5 }, async ({ routes }) => {
+  await call(routes, '/idle-power/arm', { method: 'POST', body: '{}' })
+  await sleep(4000)
+  check('the countdown is running before the suspend', (await readState(routes)).phase === 'counting')
+  // A laptop sleeping through the whole window: one tick arrives 15 s late.
+  await jump(15000)
+  check('a late tick does not spawn', state.spawned.length === 0)
+  check('the watch is re-armed after a suspend', (await readState(routes)).phase === 'armed')
+  await sleep(4000)
+  check('the full quiet window must happen again', (await readState(routes)).phase === 'counting')
+})
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`)
 process.exit(failures === 0 ? 0 : 1)

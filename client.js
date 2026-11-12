@@ -20,17 +20,34 @@ window.__ModuleLoader__.load({
       'mode.hibernate.short': '休眠',
       'mode.shutdown.short': '关机',
       'panel.title': '空闲后休眠或关机',
-      'panel.subtitle': '等所有任务停下来之后再执行，不会被硬关机打断。',
+      'panel.subtitle': '等待当前 DSH Host 的任务结束，再执行一次电源操作。',
+      'panel.flow': '执行流程',
+      'panel.quiet': '秒持续空闲',
+      'panel.countdown': '秒可取消倒计时',
+      'panel.scope': '关闭页面不会取消预约；不监测其他应用或其他 Host。',
+      'panel.mode': '电源操作',
+      'status.loading': '正在读取状态…',
+      'status.saving': '正在提交…',
+      'status.executing': '正在执行电源操作',
+      'status.agents': '运行中的智能体',
+      'status.inbox': '排队消息',
+      'status.jobs': '后台任务',
+      'countdown.cancelling': '正在取消…',
+      'countdown.offline': '连接已断开，预约可能仍在执行。取消尚未确认，请重试。',
+      'error.execution-in-progress': '电源操作已经开始执行，无法再取消。',
+      'error.reservation-changed': '预约状态刚刚发生了变化，请重新操作。',
+      'error.command-unavailable': '找不到可执行的电源命令，请检查 shutdownCommand 配置。',
+      'error.agents-unavailable': '智能体注册表不可用，暂时无法预约。',
+      'error.unsupported-platform': '此插件只支持 Windows。',
       'panel.hibernate': '休眠',
       'panel.hibernateDesc': '内存快照落盘，等于断电；下次开机原样恢复窗口和未保存的内容。',
       'panel.shutdown': '关机',
-      'panel.shutdownDesc': '立即断电；下次开机是全新状态，DSH 里的对话记录仍然保留。',
-      'panel.shutdownNote': '本机快速启动已开启，这次关机会是混合关机。需要真正的冷启动，请另运行 powercfg /h off。',
+      'panel.shutdownDesc': '倒计时结束后关闭 Windows，DSH 对话记录仍然保留。',
+      'panel.shutdownNote': '会强制关闭应用，未保存的内容可能丢失。请先保存其他应用的工作。',
       'panel.hibernateNote': '休眠后按电源键会把整机内存读回来，开着的窗口都还在。',
       'panel.arm': '预约',
       'panel.cancel': '取消预约',
       'panel.close': '关闭',
-      'panel.dismiss': '知道了',
       'status.idle': '未预约',
       'status.waiting': '等待中',
       'status.tasksSuffix': ' 个任务在跑',
@@ -40,6 +57,7 @@ window.__ModuleLoader__.load({
       'status.failed': '执行失败',
       'status.offline': '连不上插件 Host',
       'status.unsupported': '此插件只支持 Windows',
+      'status.registryUnavailable': '智能体注册表不可用，已暂停倒计时',
       'countdown.title': '所有任务已完成',
       'countdown.hibernate': '将进入休眠',
       'countdown.shutdown': '将关机',
@@ -55,17 +73,34 @@ window.__ModuleLoader__.load({
       'mode.hibernate.short': 'hibernate',
       'mode.shutdown.short': 'shut down',
       'panel.title': 'Hibernate or power off when idle',
-      'panel.subtitle': 'Runs once every task has stopped, so nothing is cut off.',
+      'panel.subtitle': 'Run one power action after tasks in this DSH Host finish.',
+      'panel.flow': 'How it runs',
+      'panel.quiet': 's continuously idle',
+      'panel.countdown': 's cancellable countdown',
+      'panel.scope': 'Closing this page does not cancel. Other apps and Hosts are not monitored.',
+      'panel.mode': 'Power action',
+      'status.loading': 'Loading status…',
+      'status.saving': 'Submitting…',
+      'status.executing': 'Executing power action',
+      'status.agents': 'Running agents',
+      'status.inbox': 'Queued messages',
+      'status.jobs': 'Background jobs',
+      'countdown.cancelling': 'Cancelling…',
+      'countdown.offline': 'Connection lost. The reservation may still run. Cancellation is unconfirmed; please retry.',
+      'error.execution-in-progress': 'The power command is already executing and can no longer be cancelled.',
+      'error.reservation-changed': 'The reservation just changed; please try again.',
+      'error.command-unavailable': 'The power command could not be found; check the shutdownCommand setting.',
+      'error.agents-unavailable': 'The agent registry is unavailable, so nothing can be scheduled right now.',
+      'error.unsupported-platform': 'This plugin supports Windows only.',
       'panel.hibernate': 'Hibernate',
       'panel.hibernateDesc': 'Writes a memory snapshot to disk, so the next boot restores every open window and unsaved edit.',
       'panel.shutdown': 'Shut down',
-      'panel.shutdownDesc': 'Powers off immediately; the next boot is a fresh session, though DSH conversations stay saved.',
-      'panel.shutdownNote': 'Fast Startup is enabled on this machine, so this is a hybrid shutdown. For a truly cold boot, run powercfg /h off separately.',
+      'panel.shutdownDesc': 'Shuts down Windows after the countdown. DSH conversations remain saved.',
+      'panel.shutdownNote': 'Forces apps to close. Unsaved work may be lost; save your work in other apps first.',
       'panel.hibernateNote': 'After hibernating, pressing the power button reads the memory image back.',
       'panel.arm': 'Schedule',
       'panel.cancel': 'Cancel',
       'panel.close': 'Close',
-      'panel.dismiss': 'Dismiss',
       'status.idle': 'Not scheduled',
       'status.waiting': 'Waiting',
       'status.tasksSuffix': ' tasks running',
@@ -75,6 +110,7 @@ window.__ModuleLoader__.load({
       'status.failed': 'Failed',
       'status.offline': 'Cannot reach the plugin Host',
       'status.unsupported': 'This plugin supports Windows only',
+      'status.registryUnavailable': 'Agent registry unavailable; countdown paused',
       'countdown.title': 'All tasks finished',
       'countdown.hibernate': 'About to hibernate',
       'countdown.shutdown': 'About to power off',
@@ -174,6 +210,26 @@ window.__ModuleLoader__.load({
 @media (hover:hover){.ipa-cancel:hover{background:var(--dsw-alias-interactive-bg-hover)}}
 .ipa-primary:disabled,.ipa-cancel:disabled{opacity:.5;cursor:default}
 .ipa-modeOption:disabled{opacity:.5;cursor:default}
+.ipa-panel{width:min(360px,calc(100vw - 24px));gap:14px;overscroll-behavior:contain;overflow-wrap:anywhere}
+.ipa-title{font-size:16px;line-height:1.4}
+.ipa-close{width:32px;height:32px;font-size:20px}
+.ipa-modeOption{padding:12px;gap:5px;min-height:44px}
+.ipa-modeOption[data-active] .ipa-optionTitle::before{content:'✓';margin-right:8px;color:var(--dsw-alias-brand-primary)}
+.ipa-modeOption:focus-visible,.ipa-close:focus-visible,.ipa-primary:focus-visible,.ipa-cancel:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-brand-primary));outline-offset:2px}
+.ipa-primary,.ipa-cancel,.ipa-cta{min-height:44px}
+.ipa-flow{display:flex;flex-direction:column;gap:4px;padding:10px 0;border-top:1px solid var(--dsw-alias-border-l1);border-bottom:1px solid var(--dsw-alias-border-l1);line-height:1.5;color:var(--dsw-alias-label-secondary)}
+.ipa-flow strong{color:var(--dsw-alias-label-primary);font-weight:500}
+.ipa-details{display:grid;grid-template-columns:1fr auto;gap:5px 12px;margin:0;color:var(--dsw-alias-label-secondary);font-size:12px}
+.ipa-details dd{margin:0;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary)}
+.ipa-note,.ipa-hint{color:var(--dsw-alias-label-secondary)}
+.ipa-feedback{color:var(--dsw-alias-state-error-primary);font-size:13px;line-height:1.5;max-width:420px;text-align:center;overflow-wrap:anywhere}
+.ipa-cta:disabled{opacity:.6;cursor:wait}
+.ipa-card{box-sizing:border-box;max-width:100%;max-height:calc(100dvh - 32px);overflow-y:auto;flex-shrink:0}
+.ipa-scrim{overflow-y:auto;padding:16px}
+@media (max-width:480px){.ipa-card{padding:24px 20px}.ipa-entry{min-height:44px}.ipa-close{width:44px;height:44px}}
+/* A committed or failed power action must not look like an idle row. */
+.ipa-entry[data-phase=executing]{color:var(--dsw-alias-brand-primary)}
+.ipa-entry[data-phase=failed],.ipa-fab[data-phase=failed]{color:var(--dsw-alias-state-error-primary)}
 `;
 
     // ----------------------------------------------------------------- store
@@ -210,8 +266,11 @@ window.__ModuleLoader__.load({
 
     /** Fetch JSON, returning { ok, value } instead of throwing on transport failure. */
     async function requestJson(route, init) {
+      // Abort a hung request so one dead connection cannot wedge the controls.
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      const timeout = controller === null ? null : setTimeout(() => controller.abort(), 10000);
       try {
-        const response = await fetch(route, init);
+        const response = await fetch(route, controller === null ? init : { ...init, signal: controller.signal });
         if (!response.ok) {
           let payload = null;
           try {
@@ -219,11 +278,13 @@ window.__ModuleLoader__.load({
           } catch {
             payload = null;
           }
-          return { ok: false, status: response.status, message: payload?.message ?? `HTTP ${response.status}` };
+          return { ok: false, status: response.status, code: payload?.code ?? null, message: payload?.message ?? `HTTP ${response.status}` };
         }
         return { ok: true, value: await response.json() };
       } catch {
         return { ok: false, offline: true, message: null };
+      } finally {
+        if (timeout !== null) clearTimeout(timeout);
       }
     }
 
@@ -231,13 +292,13 @@ window.__ModuleLoader__.load({
       supported: true,
       platform: 'unknown',
       phase: 'idle',
-      mode: 'hibernate',
+      mode: 'shutdown',
       countdownSeconds: 60,
       quietSeconds: 20,
       remainingSeconds: 0,
       quietRemainingSeconds: 0,
       deadline: null,
-      busy: { agentsRunning: 0, inboxPending: 0, jobsRunning: 0, total: 0 },
+      busy: { available: true, agentsRunning: 0, inboxPending: 0, jobsRunning: 0, total: 0 },
       error: null,
       lastExecution: null,
     };
@@ -250,11 +311,16 @@ window.__ModuleLoader__.load({
      * @returns store handle, actions, and the poller body.
      */
     function createRuntime(ctx) {
-      const store = createStore({ data: EMPTY_STATE, ready: false, offline: false, panelOpen: false, busy: false, note: null, anchor: null });
+      const store = createStore({ data: EMPTY_STATE, ready: false, offline: false, panelOpen: false, busy: false, note: null, noteCode: null, notePhase: null, anchor: null });
       const patch = (fields) => store.set((current) => ({ ...current, ...fields }));
 
+      let revision = 0;
       const refresh = async () => {
+        if (store.getSnapshot().busy) return;
+        const started = revision;
         const result = await requestJson(ROUTE_STATE, { headers: { accept: 'application/json' } });
+        // A response started before a mutation must not revive a cancelled reservation.
+        if (started !== revision) return;
         if (!result.ok) {
           patch({ offline: true });
           return;
@@ -262,11 +328,21 @@ window.__ModuleLoader__.load({
         // The state payload is small and flat enough that comparing it textually
         // is cheaper than re-rendering both overlay entries on every poll.
         const serialized = JSON.stringify(result.value);
-        if (serialized === JSON.stringify(store.getSnapshot().data)) return;
+        // A rejection belongs to the phase it happened in. Once the Host moves
+        // on, the note is stale and must not label the new state as failed.
+        if (store.getSnapshot().note !== null && result.value.phase !== store.getSnapshot().notePhase) {
+          patch({ note: null, noteCode: null, notePhase: null });
+        }
+        if (serialized === JSON.stringify(store.getSnapshot().data)) {
+          patch({ ready: true, offline: false });
+          return;
+        }
         patch({ data: result.value, ready: true, offline: false });
       };
 
       const arm = async (mode) => {
+        if (store.getSnapshot().busy) return false;
+        revision += 1;
         patch({ busy: true, note: null });
         const result = await requestJson(ROUTE_ARM, {
           method: 'POST',
@@ -275,14 +351,16 @@ window.__ModuleLoader__.load({
         });
         patch({ busy: false });
         if (result.ok) {
-          patch({ data: result.value, ready: true, offline: false, note: null });
+          patch({ data: result.value, ready: true, offline: false, note: null, noteCode: null, notePhase: null });
           return true;
         }
-        patch({ offline: result.offline === true, note: result.message ?? null });
+        patch({ offline: result.offline === true, note: result.message ?? null, noteCode: result.code ?? null, notePhase: store.getSnapshot().data.phase });
         return false;
       };
 
       const cancel = async () => {
+        if (store.getSnapshot().busy) return false;
+        revision += 1;
         patch({ busy: true, note: null });
         const result = await requestJson(ROUTE_CANCEL, {
           method: 'POST',
@@ -291,10 +369,10 @@ window.__ModuleLoader__.load({
         });
         patch({ busy: false });
         if (result.ok) {
-          patch({ data: result.value, ready: true, offline: false, note: null });
+          patch({ data: result.value, ready: true, offline: false, note: null, noteCode: null, notePhase: null });
           return true;
         }
-        patch({ offline: result.offline === true, note: result.message ?? null });
+        patch({ offline: result.offline === true, note: result.message ?? null, noteCode: result.code ?? null, notePhase: store.getSnapshot().data.phase });
         return false;
       };
 
@@ -304,6 +382,8 @@ window.__ModuleLoader__.load({
        * keeping it only in component state left the entry naming the old mode.
        */
       const setMode = async (mode) => {
+        if (store.getSnapshot().busy) return false;
+        revision += 1;
         patch({ busy: true, note: null });
         const result = await requestJson(ROUTE_MODE, {
           method: 'POST',
@@ -312,10 +392,10 @@ window.__ModuleLoader__.load({
         });
         patch({ busy: false });
         if (result.ok) {
-          patch({ data: result.value, ready: true, offline: false, note: null });
+          patch({ data: result.value, ready: true, offline: false, note: null, noteCode: null, notePhase: null });
           return true;
         }
-        patch({ offline: result.offline === true, note: result.message ?? null });
+        patch({ offline: result.offline === true, note: result.message ?? null, noteCode: result.code ?? null, notePhase: store.getSnapshot().data.phase });
         return false;
       };
 
@@ -335,6 +415,16 @@ window.__ModuleLoader__.load({
     }
 
     // -------------------------------------------------------------- controls
+    /** Prefer localized copy for a known Host error code; fall back to its message. */
+    function describeFailure(code, message, t) {
+      if (code !== null && code !== undefined) {
+        const key = `error.${code}`;
+        const localized = t(key);
+        if (localized !== key) return localized;
+      }
+      return message ?? '';
+    }
+
     /** Power glyph; deliberately geometric and theme-neutral. */
     function PowerGlyph({ size }) {
       return h('svg', {
@@ -368,7 +458,7 @@ window.__ModuleLoader__.load({
      * so a pending power action can never be forgotten in the corner.
      */
     function PowerButton({ usePower, open, t, wide }) {
-      const { data, offline } = usePower((current) => current);
+      const { data, offline, panelOpen } = usePower((current) => current);
       const active = data.phase === 'armed' || data.phase === 'counting';
       const counting = data.phase === 'counting';
       // Hand the trigger's own rect to the panel so it opens above this row
@@ -383,7 +473,9 @@ window.__ModuleLoader__.load({
           ? t('status.unsupported')
           : offline
             ? t('status.offline')
-            : counting
+            : data.busy?.available === false
+              ? t('status.registryUnavailable')
+              : counting
               ? t('status.counting')
               : active
                 ? t('status.waiting')
@@ -393,6 +485,8 @@ window.__ModuleLoader__.load({
           className: 'ipa-fab',
           'data-ipa-trigger': '',
           'aria-label': dotLabel,
+          'aria-haspopup': 'dialog',
+          'aria-expanded': Boolean(panelOpen),
           title: dotLabel,
           'data-active': active || undefined,
           'data-phase': data.phase,
@@ -409,6 +503,9 @@ window.__ModuleLoader__.load({
       let text;
       if (!data.supported) text = t('status.unsupported');
       else if (offline) text = t('status.offline');
+      else if (data.busy?.available === false) text = t('status.registryUnavailable');
+      else if (data.phase === 'failed') text = t('status.failed');
+      else if (data.phase === 'executing') text = t('status.executing');
       else if (counting) text = `${data.remainingSeconds}${t('entry.secondsTo')}${modeName}`;
       else if (active && data.busy.total > 0)
         text = `${t('status.waiting')} · ${data.busy.total}${t('status.tasksSuffix')}`;
@@ -420,6 +517,8 @@ window.__ModuleLoader__.load({
         className: 'ipa-entry',
         'data-ipa-trigger': '',
         'aria-label': text,
+        'aria-haspopup': 'dialog',
+        'aria-expanded': Boolean(panelOpen),
         title: text,
         'data-active': active || undefined,
         'data-phase': data.phase,
@@ -433,11 +532,13 @@ window.__ModuleLoader__.load({
 
     /** The scheduling panel: mode choice, live status, arm and cancel. */
     function PowerPanel({ usePower, arm, cancel, setMode, close, t }) {
-      const { data, ready, offline, busy, note, anchor } = usePower((current) => current);
+      const { data, ready, offline, busy, note, noteCode, anchor } = usePower((current) => current);
       const panelRef = useRef(null);
       useEffect(() => {
+        const previous = document.activeElement;
+        panelRef.current?.focus?.();
         const onKey = (event) => {
-          if (event.key === 'Escape') close();
+          if (event.key === 'Escape') { close(); previous?.focus?.(); }
         };
         // A pointer press anywhere outside the card dismisses it, the way every
         // other popover in this app behaves.
@@ -462,8 +563,8 @@ window.__ModuleLoader__.load({
       const viewportHeight = typeof window === 'undefined' ? 800 : window.innerHeight;
       const placement = hasAnchor
         ? {
-          left: Math.max(8, Math.min(anchor.left, viewportWidth - 336)),
-          bottom: Math.max(8, viewportHeight - anchor.top + 8),
+          left: Math.max(8, Math.min(anchor.left, viewportWidth - 372)),
+          bottom: anchor.top < 360 ? 12 : Math.max(12, viewportHeight - anchor.top + 8),
         }
         : { left: 12, bottom: 150 };
 
@@ -475,25 +576,36 @@ window.__ModuleLoader__.load({
       let statusTone = 'normal';
       if (!data.supported) statusText = t('status.unsupported');
       else if (note !== null) {
-        statusText = `${t('status.failed')}: ${note}`;
+        statusText = `${t('status.failed')}: ${describeFailure(noteCode, note, t)}`;
         statusTone = 'error';
-      } else if (!ready && offline) statusText = t('status.offline');
+      } else if (offline) { statusText = t('status.offline'); statusTone = 'error'; }
+      else if (!ready) statusText = t('status.loading');
+      else if (data.busy?.available === false) { statusText = t('status.registryUnavailable'); statusTone = 'error'; }
       else if (data.phase === 'failed') {
         statusText = `${t('status.failed')}: ${data.error ?? ''}`;
         statusTone = 'error';
-      } else if (data.phase === 'counting') statusText = t('status.counting');
+      } else if (data.phase === 'counting') statusText = `${t('status.counting')} · ${data.remainingSeconds}${t('countdown.suffix')}`;
       else if (data.phase === 'armed' && data.busy.total > 0)
         statusText = `${t('status.waiting')} · ${data.busy.total}${t('status.tasksSuffix')}`;
       else if (data.phase === 'armed')
         statusText = `${t('status.quietPrefix')}${data.quietRemainingSeconds}${t('status.quietSuffix')}`;
-      else if (data.phase === 'executing') statusText = t('status.counting');
+      else if (data.phase === 'executing') statusText = t('status.executing');
       else statusText = t('status.idle');
 
       const option = (value, titleKey, descKey, noteKey) => h('button', {
         type: 'button',
         className: 'ipa-modeOption',
         'data-active': mode === value || undefined,
-        disabled: locked,
+        disabled: locked || busy || !ready || offline || !data.supported || data.busy?.available === false,
+        tabIndex: mode === value ? 0 : -1,
+        onKeyDown: (event) => {
+          if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const choices = Array.from(event.currentTarget.parentElement.querySelectorAll('[role="radio"]'));
+          const target = event.key === 'Home' ? choices[0] : event.key === 'End' ? choices[1] : choices.find((item) => item !== event.currentTarget);
+          target?.focus();
+          target?.click();
+        },
         onClick: () => {
           if (value === data.mode) return;
           // While reserved, changing the mode re-arms with it; while idle it
@@ -513,8 +625,10 @@ window.__ModuleLoader__.load({
         className: 'ipa-panel',
         ref: panelRef,
         role: 'dialog',
+        tabIndex: -1,
         'aria-label': t('panel.title'),
-        style: { left: `${placement.left}px`, bottom: `${placement.bottom}px` },
+        'aria-busy': busy,
+        style: { left: `${placement.left}px`, bottom: `${placement.bottom}px`, maxHeight: `${Math.max(80, viewportHeight - placement.bottom - 12)}px` },
       },
         h('div', { className: 'ipa-head' },
           h('span', { className: 'ipa-title' }, t('panel.title')),
@@ -526,11 +640,22 @@ window.__ModuleLoader__.load({
           }, '\u00d7'),
         ),
         h('div', { className: 'ipa-sub' }, t('panel.subtitle')),
-        h('div', { className: 'ipa-modes', role: 'radiogroup' },
+        h('div', { className: 'ipa-modes', role: 'radiogroup', 'aria-label': t('panel.mode') },
           option('hibernate', 'panel.hibernate', 'panel.hibernateDesc', 'panel.hibernateNote'),
           option('shutdown', 'panel.shutdown', 'panel.shutdownDesc', 'panel.shutdownNote'),
         ),
-        h('div', { className: 'ipa-status', 'data-tone': statusTone }, statusText),
+        h('div', { className: 'ipa-flow', 'aria-label': t('panel.flow') },
+          h('strong', null, `${data.quietSeconds} ${t('panel.quiet')} → ${data.countdownSeconds} ${t('panel.countdown')}`),
+          h('span', { className: 'ipa-note' }, t('panel.scope')),
+        ),
+        h('div', { className: 'ipa-status', 'data-tone': statusTone, role: 'status' }, statusText),
+        armed && data.busy.total > 0 && h('dl', { className: 'ipa-details' },
+          [['agentsRunning', 'status.agents'], ['inboxPending', 'status.inbox'], ['jobsRunning', 'status.jobs']]
+            .flatMap(([key, label]) => [
+              h('dt', { key: `${key}-t` }, t(label)),
+              h('dd', { key: `${key}-d` }, String(data.busy[key] ?? 0)),
+            ]),
+        ),
         // Exactly one primary action: arm while idle, cancel while reserved.
         // Showing both at once was the reason an armed reservation still looked
         // unarmed.
@@ -541,20 +666,21 @@ window.__ModuleLoader__.load({
               className: 'ipa-cancel',
               disabled: busy,
               onClick: () => { void cancel(); },
-            }, t('panel.cancel'))
+            }, t(busy ? 'countdown.cancelling' : 'panel.cancel'))
             : h('button', {
               type: 'button',
               className: 'ipa-primary',
-              disabled: busy || !data.supported || locked,
+              disabled: busy || !ready || offline || !data.supported || locked || data.busy?.available === false,
               onClick: () => { void arm(mode); },
-            }, t('panel.arm')),
+            }, t(locked ? 'status.executing' : busy ? 'status.saving' : 'panel.arm')),
         ),
       );
     }
 
     /** Full-frame countdown; the only cancel affordance before an irreversible action. */
     function PowerCountdown({ usePower, cancel, t }) {
-      const { data } = usePower((current) => current);
+      const { data, busy, offline, note, noteCode } = usePower((current) => current);
+      const cancelRef = useRef(null);
       const [now, setNow] = useState(() => Date.now());
 
       useEffect(() => {
@@ -562,11 +688,18 @@ window.__ModuleLoader__.load({
         return () => clearInterval(timer);
       }, []);
 
-      const cancelCountdown = useCallback(() => { void cancel(); }, [cancel]);
+      const cancelCountdown = useCallback(() => { if (!busy) void cancel(); }, [cancel, busy]);
+
+      useEffect(() => {
+        const previous = document.activeElement;
+        cancelRef.current?.focus?.();
+        return () => { if (previous?.isConnected) previous.focus?.(); };
+      }, []);
 
       useEffect(() => {
         const onKey = (event) => {
-          if (event.key === 'Escape') cancelCountdown();
+          if (event.key === 'Escape') { event.preventDefault?.(); cancelCountdown(); }
+          if (event.key === 'Tab') { event.preventDefault?.(); cancelRef.current?.focus?.(); }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -617,13 +750,17 @@ window.__ModuleLoader__.load({
           h('button', {
             type: 'button',
             className: 'ipa-cta',
+            ref: cancelRef,
+            'aria-disabled': Boolean(busy),
             onClick: cancelCountdown,
             autoFocus: true,
           },
-            t('countdown.cancel'),
+            t(busy ? 'countdown.cancelling' : 'countdown.cancel'),
             h('kbd', { className: 'ipa-kbd' }, 'Esc'),
           ),
+          (offline || note) && h('div', { className: 'ipa-feedback', role: 'alert' }, offline ? t('countdown.offline') : `${t('status.failed')}: ${describeFailure(noteCode, note, t)}`),
           h('div', { className: 'ipa-hint' }, t('countdown.hint')),
+          data.mode === 'shutdown' && h('div', { className: 'ipa-hint' }, t('panel.shutdownNote')),
         ),
       );
     }

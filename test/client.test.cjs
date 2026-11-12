@@ -488,6 +488,110 @@ console.log('\n=== panel: arm refusal note ===')
   const refused = { data: baseState, ready: true, offline: false, busy: false, note: 'command not found', panelOpen: true }
   const { tree } = renderEntry(panel, refused)
   check('surfaces the refusal note', textsOf(tree).some((s) => s.includes('command not found')), textsOf(tree).join('|'))
+
+  // A known Host error code is shown in the reader's language, not as raw server text.
+  const coded = {
+    data: baseState, ready: true, offline: false, busy: false,
+    note: 'the power command is already executing', noteCode: 'execution-in-progress', panelOpen: true,
+  }
+  const codedT = (key) => (key === 'error.execution-in-progress' ? '电源操作已经开始执行，无法再取消。' : key)
+  const codedTexts = textsOf(renderEntry(panel, coded, { t: codedT }).tree)
+  check('localizes a known Host error code', codedTexts.some((s) => s.includes('无法再取消')), codedTexts.join('|'))
+  check('does not leak the raw message for a known code', !codedTexts.some((s) => s.includes('already executing')), codedTexts.join('|'))
+}
+
+console.log('\n=== panel: loading and offline states ===')
+{
+  const loading = { data: baseState, ready: false, offline: false, busy: false, note: null, panelOpen: true }
+  const loadingTree = renderEntry(panel, loading).tree
+  check('says it is still loading before the first state', textsOf(loadingTree).includes('status.loading'), textsOf(loadingTree).join('|'))
+  const loadingPrimary = findElement(loadingTree, (n) => typeof n.props.className === 'string' && n.props.className.includes('ipa-primary'))
+  check('cannot arm before the first state arrives', loadingPrimary?.props.disabled === true, String(loadingPrimary?.props.disabled))
+
+  const offline = { data: baseState, ready: true, offline: true, busy: false, note: null, panelOpen: true }
+  const offlineTree = renderEntry(panel, offline).tree
+  check('surfaces the offline status', textsOf(offlineTree).includes('status.offline'), textsOf(offlineTree).join('|'))
+  check('marks offline as an error tone', findElement(offlineTree, (n) => n.props['data-tone'] === 'error') !== undefined)
+  const offlinePrimary = findElement(offlineTree, (n) => typeof n.props.className === 'string' && n.props.className.includes('ipa-primary'))
+  check('cannot arm while offline', offlinePrimary?.props.disabled === true, String(offlinePrimary?.props.disabled))
+}
+
+console.log('\n=== panel: missing agent registry cannot look idle ===')
+{
+  const unavailable = {
+    data: { ...baseState, busy: { available: false, agentsRunning: 0, inboxPending: 0, jobsRunning: 0, total: 0 } },
+    ready: true, offline: false, busy: false, note: null, panelOpen: true,
+  }
+  const { tree } = renderEntry(panel, unavailable)
+  check('explains the paused countdown', textsOf(tree).includes('status.registryUnavailable'), textsOf(tree).join('|'))
+  const primary = findElement(tree, (n) => typeof n.props.className === 'string' && n.props.className.includes('ipa-primary'))
+  check('refuses to arm without a registry', primary?.props.disabled === true, String(primary?.props.disabled))
+}
+
+console.log('\n=== panel: busy breakdown ===')
+{
+  const armed = {
+    data: { ...baseState, phase: 'armed', busy: { available: true, agentsRunning: 2, inboxPending: 1, jobsRunning: 3, total: 6 } },
+    ready: true, offline: false, busy: false, note: null, panelOpen: true,
+  }
+  const { tree } = renderEntry(panel, armed)
+  const texts = textsOf(tree)
+  check('names running agents', texts.includes('status.agents'), texts.join('|'))
+  check('names queued messages', texts.includes('status.inbox'), texts.join('|'))
+  check('names background jobs', texts.includes('status.jobs'), texts.join('|'))
+  check('shows every count', ['2', '1', '3'].every((n) => texts.includes(n)), texts.join('|'))
+  const details = findElement(tree, (n) => typeof n.props.className === 'string' && n.props.className.includes('ipa-details'))
+  check('renders the breakdown list', details !== undefined)
+}
+
+console.log('\n=== panel: scheduling flow is stated ===')
+{
+  const { tree } = renderEntry(panel, { data: baseState, ready: true, offline: false, busy: false, note: null, panelOpen: true })
+  const flow = findElement(tree, (n) => typeof n.props.className === 'string' && n.props.className.includes('ipa-flow'))
+  check('renders the flow block', flow !== undefined)
+  const joined = textsOf(tree).join('|')
+  check('states the quiet window and the countdown', joined.includes('panel.quiet') && joined.includes('panel.countdown'), joined)
+  check('states what is not monitored', joined.includes('panel.scope'), joined)
+}
+
+console.log('\n=== countdown: cancel failure is visible ===')
+{
+  const failedCancel = {
+    data: { ...baseState, phase: 'counting', remainingSeconds: 30, countdownSeconds: 60, deadline: Date.now() + 30000 },
+    offline: true, busy: false, note: null,
+  }
+  const { tree } = renderEntry(countdown, failedCancel)
+  const alert = findElement(tree, (n) => n.props.role === 'alert')
+  check('renders the failure alert', alert !== undefined)
+  check('does not claim cancellation succeeded', textsOf(tree).includes('countdown.offline'), textsOf(tree).join('|'))
+
+  const withNote = renderEntry(countdown, {
+    data: failedCancel.data, offline: false, busy: false, note: 'HTTP 409',
+  })
+  check('surfaces the rejection detail', textsOf(withNote.tree).some((s) => s.includes('HTTP 409')), textsOf(withNote.tree).join('|'))
+
+  const busyCancel = renderEntry(countdown, { data: failedCancel.data, offline: false, busy: true, note: null })
+  const cta = findElement(busyCancel.tree, (n) => typeof n.props.className === 'string' && n.props.className.includes('ipa-cta'))
+  check('marks cancel busy while the request runs', cta?.props['aria-disabled'] === true, String(cta?.props['aria-disabled']))
+  check('labels the pending cancel', textsOf(busyCancel.tree).includes('countdown.cancelling'), textsOf(busyCancel.tree).join('|'))
+}
+
+console.log('\n=== countdown: shutdown warns about unsaved work ===')
+{
+  const shutdown = { data: { ...baseState, phase: 'counting', mode: 'shutdown', remainingSeconds: 30, countdownSeconds: 60, deadline: null } }
+  const { tree } = renderEntry(countdown, shutdown)
+  check('repeats the unsaved-work warning', textsOf(tree).includes('panel.shutdownNote'), textsOf(tree).join('|'))
+  const hibernate = { data: { ...baseState, phase: 'counting', mode: 'hibernate', remainingSeconds: 30, countdownSeconds: 60, deadline: null } }
+  check('does not show it for hibernate', !textsOf(renderEntry(countdown, hibernate).tree).includes('panel.shutdownNote'))
+}
+
+console.log('\n=== trigger: expanded state is exposed ===')
+{
+  const wide = renderEntry(button, { data: baseState, offline: false, panelOpen: true }, {}, { wide: true })
+  check('wide trigger advertises the dialog', wide.root.props['aria-haspopup'] === 'dialog')
+  check('wide trigger reports expanded', wide.root.props['aria-expanded'] === true, String(wide.root.props['aria-expanded']))
+  const rail = renderEntry(button, { data: baseState, offline: false, panelOpen: false }, {}, { wide: false })
+  check('rail trigger reports collapsed', rail.root.props['aria-expanded'] === false, String(rail.root.props['aria-expanded']))
 }
 
 console.log('\n=== countdown: hidden unless counting ===')
